@@ -1,0 +1,17 @@
+{
+  "name": "webrtc-manual-filetransfer",
+  "version": "1.0.0",
+  "description": "两个浏览器页面通过手工复制 SDP 建立 WebRTC DataChannel 传输单个文件（无信令服务器、不上传文件）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node tests/page/static-server.js",
+    "test": "node --test tests/unit/protocol.test.js tests/unit/transfer.test.js",
+    "test:e2e": "playwright test"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "playwright": "^1.63.0"
+  }
+}

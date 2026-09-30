@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebRTC 手工连接 · 文件直传</title>
+  <style>
+    :root {
+      --bg: #0f1420;
+      --panel: #181f30;
+      --panel-2: #1f2940;
+      --text: #e8edf7;
+      --muted: #9aa7c0;
+      --accent: #5b9dff;
+      --ok: #35c48d;
+      --warn: #f5a524;
+      --err: #f26067;
+      --border: #2a3550;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .panel h2 { font-size: 15px; margin: 0 0 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button {
+      background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+      padding: 8px 14px; font-size: 14px; cursor: pointer;
+    }
+    button.secondary { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+    button.danger { background: var(--err); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    label.role { display:inline-flex; gap:6px; align-items:center; font-size:14px; margin-right:12px; cursor:pointer; }
+    textarea {
+      width: 100%; min-height: 110px; resize: vertical;
+      background: #0c111c; color: var(--text);
+      border: 1px solid var(--border); border-radius: 7px;
+      padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+      margin: 8px 0;
+    }
+    .hint { color: var(--muted); font-size: 12.5px; }
+    .status { font-size: 13.5px; margin-top: 8px; }
+    .badge { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+    .badge.idle { background: var(--panel-2); color: var(--muted); }
+    .badge.connecting { background: #31415f; color: #bcd1ff; }
+    .badge.connected, .badge.completed { background: rgba(53,196,141,.16); color: var(--ok); }
+    .badge.hashing, .badge.active, .badge.verifying { background: rgba(91,157,255,.16); color: var(--accent); }
+    .badge.canceled { background: rgba(245,165,36,.16); color: var(--warn); }
+    .badge.failed { background: rgba(242,96,103,.16); color: var(--err); }
+    .progress {
+      height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden;
+      margin: 10px 0 4px;
+    }
+    .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .12s linear; }
+    .filemeta { font-size: 13px; color: var(--muted); margin-top: 6px; word-break: break-all; }
+    .filemeta code { color: var(--text); }
+    a.download { color: var(--ok); font-weight: 600; }
+    .error-text { color: var(--err); font-weight: 600; }
+    .warn-text { color: var(--warn); }
+    .steps { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+    .steps li { margin: 3px 0; }
+    [hidden] { display: none !important; }
+    .hash { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--muted); word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>WebRTC 手工连接 · 文件直传</h1>
+    <div class="sub">
+      无信令服务器、文件不经过任何服务器：两个浏览器页面通过复制粘贴连接信息（SDP）直接建立
+      DataChannel，点对点传输一个 ≤ 5 MiB 的文件（块大小 16 KiB，SHA-256 校验）。
+    </div>
+
+    <section class="panel">
+      <h2>1. 选择角色并建立连接</h2>
+      <div class="row">
+        <label class="role"><input type="radio" name="role" value="offer" checked /> 发起方（页面 A）</label>
+        <label class="role"><input type="radio" name="role" value="answer" /> 应答方（页面 B）</label>
+        <button id="restart" class="secondary" type="button">重置 / 重新连接</button>
+      </div>
+      <ol class="steps">
+        <li>发起方点「生成连接信息」，把文本框内容复制给应答方（聊天/U盘均可）。</li>
+        <li>应答方粘贴后点「生成应答信息」，再把生成的文本复制回发起方。</li>
+        <li>发起方粘贴应答并点「接受应答」，状态变为已连接后即可传文件。</li>
+      </ol>
+
+      <div class="row" style="margin-top:8px">
+        <button id="offer-btn" type="button">生成连接信息</button>
+        <button id="answer-btn" type="button" hidden>生成应答信息</button>
+        <button id="accept-btn" type="button" hidden>接受应答</button>
+      </div>
+
+      <label class="hint" for="signal-in" id="signal-in-label" hidden>粘贴对方文本：</label>
+      <textarea id="signal-in" spellcheck="false" placeholder="把对方复制给你的连接信息粘贴到这里"></textarea>
+
+      <div class="hint" id="signal-out-label" hidden>复制下面的文本给对方：</div>
+      <textarea id="signal-out" spellcheck="false" readonly hidden placeholder="生成的文本会出现在这里"></textarea>
+      <div class="row" id="copy-row" hidden>
+        <button id="copy-out" class="secondary" type="button">复制文本</button>
+      </div>
+
+      <div class="status">
+        连接状态：<span id="conn-state" class="badge idle">未连接</span>
+        <span id="conn-detail" class="hint"></span>
+      </div>
+      <div id="conn-error" class="status error-text" hidden></div>
+    </section>
+
+    <section class="panel" id="transfer-panel" hidden>
+      <h2>2. 传输文件</h2>
+
+      <div id="sender-box">
+        <div class="row">
+          <input type="file" id="file-input" />
+          <button id="send-btn" type="button" disabled>发送</button>
+          <button id="cancel-send" class="danger" type="button" hidden>取消发送</button>
+        </div>
+        <div class="hint">仅接受 ≤ 5 MiB 的单个文件。</div>
+      </div>
+
+      <div id="receiver-box" hidden>
+        <div class="filemeta" id="recv-meta">等待文件元信息…</div>
+        <div class="row" style="margin-top:8px">
+          <button id="cancel-recv" class="danger" type="button" hidden>拒收并取消</button>
+        </div>
+      </div>
+
+      <div class="status" style="margin-top:10px">
+        传输状态：<span id="xfer-state" class="badge idle">空闲</span>
+        <span id="xfer-detail" class="hint"></span>
+      </div>
+      <div class="progress" id="progress-wrap" hidden><div id="progress-bar"></div></div>
+      <div class="hint" id="progress-text"></div>
+      <div id="xfer-error" class="status error-text" hidden></div>
+      <div id="xfer-warn" class="status warn-text" hidden></div>
+      <div id="download-box" class="status" hidden></div>
+      <div id="hash-box" class="hash" hidden></div>
+    </section>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
